@@ -45,6 +45,7 @@ export default function App() {
   const [noButtonPos, setNoButtonPos] = useState({ x: 0, y: 0, rotate: 0 });
   const [isMoving, setIsMoving] = useState(false);
   const [noMessageIndex, setNoMessageIndex] = useState(0);
+  const noButtonRef = React.useRef<HTMLButtonElement>(null);
 
   const noMessages = [
     "Are you sure?",
@@ -65,24 +66,90 @@ export default function App() {
     // Button dimensions (approximate)
     const btnWidth = 160;
     const btnHeight = 80;
-    const margin = 20;
-
+    
     // Check if we are on a small screen
     const isMobile = window.innerWidth < 768;
     
-    // Calculate the maximum allowed displacement from the original position
-    // On mobile, we need to be much more restrictive with vertical movement
-    const maxX = Math.max(0, (window.innerWidth / 2) - (btnWidth / 2) - margin);
-    const maxY = Math.max(0, (window.innerHeight / 2) - (btnHeight / 2) - margin - (isMobile ? 150 : 80));
-
-    const randomX = (Math.random() - 0.5) * maxX * 2;
-    const randomY = (Math.random() - 0.5) * maxY * 2;
-    const randomRotate = (Math.random() * 40) - 20; // -20 to +20 degrees
+    // TARGET: The "Will u marry me?" text area
+    // We calculate the offset from the button's original position to the text area
+    let targetY = 0;
+    let targetX = 0;
     
-    setNoButtonPos({ x: randomX, y: randomY, rotate: randomRotate });
+    if (isMobile) {
+      // On mobile, buttons are in a column. "No" is at the bottom.
+      // "Yes" is ~100px above "No".
+      // Text is ~220px above "No".
+      targetY = -240; 
+      targetX = 0;
+    } else {
+      // On desktop, buttons are in a row. "No" is on the right.
+      // "Yes" is ~200px to the left of "No".
+      // Text is ~180px above the midpoint.
+      targetY = -180;
+      targetX = -100; // Move left to center on the text
+    }
+
+    // Movement range within the text area
+    const rangeX = isMobile ? 120 : 200;
+    const rangeY = isMobile ? 40 : 60;
+
+    // Ensure it always jumps a minimum distance from its current position
+    let randomX, randomY;
+    let attempts = 0;
+    do {
+      randomX = targetX + (Math.random() - 0.5) * rangeX;
+      randomY = targetY + (Math.random() - 0.5) * rangeY;
+      attempts++;
+      // Calculate distance from current position
+      const dist = Math.sqrt(Math.pow(randomX - noButtonPos.x, 2) + Math.pow(randomY - noButtonPos.y, 2));
+      // If it's far enough or we've tried too many times, break
+      if (dist > 80 || attempts > 15) break;
+    } while (true);
+    
+    let finalX = randomX;
+    let finalY = randomY;
+
+    if (isMobile) {
+      // If too close to Yes button (y = -100), push it further up or down
+      if (finalY > -150 && finalY < -50) {
+        finalY = -240; // Push back to text area
+      }
+    } else {
+      // If too close to Yes button (x = -200, y = 0), push it away
+      if (finalX < -150 && finalY > -50) {
+        finalX = 0; // Push back towards original X
+      }
+    }
+
+    const randomRotate = (Math.random() * 40) - 20;
+    
+    setNoButtonPos({ x: finalX, y: finalY, rotate: randomRotate });
     setIsMoving(true);
     setNoMessageIndex((prev) => (prev + 1) % noMessages.length);
-  }, [noMessages.length]);
+  }, [noButtonPos.x, noButtonPos.y, noMessages.length]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!noButtonRef.current || accepted) return;
+
+      const rect = noButtonRef.current.getBoundingClientRect();
+      const buttonCenterX = rect.left + rect.width / 2;
+      const buttonCenterY = rect.top + rect.height / 2;
+
+      const distance = Math.sqrt(
+        Math.pow(e.clientX - buttonCenterX, 2) + 
+        Math.pow(e.clientY - buttonCenterY, 2)
+      );
+
+      // If cursor is within 150px of the button center, move it
+      if (distance < 150) {
+        moveNoButton();
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [moveNoButton, accepted]);
 
   useEffect(() => {
     if (isMoving) {
@@ -238,7 +305,7 @@ export default function App() {
           <Heart size={80} className="text-rose-500" fill="currentColor" />
         </motion.div>
         
-        <h2 className="text-5xl md:text-6xl font-bold text-rose-700 mb-10 font-serif leading-tight">
+        <h2 className="text-5xl md:text-6xl font-bold text-rose-700 mb-10 font-serif leading-tight relative z-0">
           Will u marry me?
         </h2>
 
@@ -254,25 +321,34 @@ export default function App() {
           </motion.p>
         </AnimatePresence>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-10">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-10 relative">
           <motion.button
             whileHover={{ scale: 1.05, boxShadow: "0 20px 40px -10px rgba(225,29,72,0.4)" }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setAccepted(true)}
-            className="px-14 py-5 bg-rose-500 text-white rounded-full text-2xl font-black shadow-xl hover:bg-rose-600 transition-all cursor-pointer min-w-[160px] font-sans uppercase tracking-[0.15em] italic"
+            className="px-14 py-5 bg-rose-500 text-white rounded-full text-2xl font-black shadow-xl hover:bg-rose-600 transition-all cursor-pointer min-w-[160px] font-sans uppercase tracking-[0.15em] italic relative z-10"
           >
             Yes
           </motion.button>
 
           <motion.button
+            ref={noButtonRef}
             animate={{ 
               x: noButtonPos.x, 
               y: noButtonPos.y,
               rotate: noButtonPos.rotate
             }}
-            onMouseEnter={moveNoButton}
-            onTouchStart={moveNoButton}
-            className="px-14 py-5 bg-sky-400/20 text-sky-600 rounded-full text-2xl font-black shadow-sm backdrop-blur-md border border-sky-200/50 cursor-default min-w-[160px] font-sans uppercase tracking-[0.15em] italic"
+            transition={{ 
+              type: "spring", 
+              stiffness: 600, 
+              damping: 30,
+              mass: 0.8
+            }}
+            onMouseEnter={() => moveNoButton()}
+            onTouchStart={() => moveNoButton()}
+            onPointerEnter={() => moveNoButton()}
+            onPointerDown={() => moveNoButton()}
+            className="px-14 py-5 bg-sky-400/20 text-sky-600 rounded-full text-2xl font-black shadow-sm backdrop-blur-md border border-sky-200/50 cursor-default min-w-[160px] font-sans uppercase tracking-[0.15em] italic relative z-20"
           >
             No
           </motion.button>
